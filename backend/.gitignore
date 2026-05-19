@@ -1,0 +1,8 @@
+bin/
+data/
+*.jsonl
+server
+
+# Log files
+logs/
+*.log

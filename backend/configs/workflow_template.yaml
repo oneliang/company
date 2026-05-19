@@ -1,0 +1,40 @@
+name: standard_development
+description: Standard development workflow with CEO decision points
+
+steps:
+  - id: analyze
+    role: pm
+    action: analyze_requirements
+    description: PM analyzes user requirements
+
+  - id: design
+    role: techlead
+    action: design_architecture
+    description: TechLead designs architecture
+    depends_on: [analyze]
+
+  - id: ceo_review_design
+    role: ceo
+    action: review
+    description: CEO reviews architecture
+    decision_point: true
+    depends_on: [design]
+
+  - id: implement
+    role: dev
+    action: implement
+    description: Dev implements feature
+    depends_on: [ceo_review_design]
+
+  - id: review
+    role: qa
+    action: test_and_review
+    description: QA tests implementation
+    depends_on: [implement]
+
+  - id: ceo_review_final
+    role: ceo
+    action: review
+    description: CEO reviews final result
+    decision_point: true
+    depends_on: [review]
