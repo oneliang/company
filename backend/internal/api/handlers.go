@@ -844,6 +844,55 @@ func (h *Handlers) GetSessionOutput(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+// ListSessionFinalOutputs returns list of final output files (outputs directory).
+func (h *Handlers) ListSessionFinalOutputs(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	companyID := vars["id"]
+	sessionID := vars["sid"]
+
+	// 最终产物存放在 outputs 目录
+	outputsDir := filepath.Join(h.dataDir, companyID, "sessions", sessionID, "outputs")
+	files, err := os.ReadDir(outputsDir)
+	if err != nil {
+		// No outputs directory - return empty list
+		json.NewEncoder(w).Encode([]string{})
+		return
+	}
+
+	var outputs []string
+	for _, f := range files {
+		if !f.IsDir() {
+			outputs = append(outputs, f.Name())
+		}
+	}
+
+	json.NewEncoder(w).Encode(outputs)
+}
+
+// GetSessionFinalOutput returns content of a specific final output file.
+func (h *Handlers) GetSessionFinalOutput(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	companyID := vars["id"]
+	sessionID := vars["sid"]
+	filename := vars["filename"]
+
+	// Validate filename - prevent path traversal
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") || strings.Contains(filename, "..") {
+		http.Error(w, "invalid filename", 400)
+		return
+	}
+
+	path := filepath.Join(h.dataDir, companyID, "sessions", sessionID, "outputs", filename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		http.Error(w, "file not found", 404)
+		return
+	}
+
+	// Return raw content
+	w.Write(data)
+}
+
 // GetStepHistory returns conversation history for a step.
 func (h *Handlers) GetStepHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)

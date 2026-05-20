@@ -52,6 +52,10 @@ func NewRouter(handlers *Handlers, wsHandler *WebSocketHandler) *mux.Router {
 	r.HandleFunc("/api/companies/{id}/sessions/{sid}/outputs", handlers.ListSessionOutputs).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/companies/{id}/sessions/{sid}/outputs/{filename}", handlers.GetSessionOutput).Methods("GET", "OPTIONS")
 
+	// Session final outputs (最终产物)
+	r.HandleFunc("/api/companies/{id}/sessions/{sid}/finaloutputs", handlers.ListSessionFinalOutputs).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/companies/{id}/sessions/{sid}/finaloutputs/{filename}", handlers.GetSessionFinalOutput).Methods("GET", "OPTIONS")
+
 	// Company roles
 	r.HandleFunc("/api/companies/{id}/roles", handlers.ListCompanyRoles).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/companies/{id}/roles/{roleId}", handlers.GetRole).Methods("GET", "OPTIONS")

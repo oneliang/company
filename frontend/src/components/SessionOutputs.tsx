@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { listSessionOutputs, getSessionOutput } from '../api/companyApi'
+import { listSessionOutputs, getSessionOutput, listSessionFinalOutputs, getSessionFinalOutput } from '../api/companyApi'
 
 interface Props {
   refreshKey?: number // When this changes, refresh the file list
@@ -29,18 +29,34 @@ function formatStepLabel(workflow: any, filename: string): string {
 
 export default function SessionOutputs({ refreshKey = 0, workflow }: Props) {
   const { companyId, sessionId } = useParams<{ companyId: string; sessionId: string }>()
+  // Workspace files (步骤文档)
   const [files, setFiles] = useState<string[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [content, setContent] = useState<string>('')
   const [loading, setLoading] = useState(false)
+  // Final outputs (最终产物)
+  const [finalFiles, setFinalFiles] = useState<string[]>([])
+  const [selectedFinal, setSelectedFinal] = useState<string | null>(null)
+  const [finalContent, setFinalContent] = useState<string>('')
+  const [loadingFinal, setLoadingFinal] = useState(false)
 
+  // Load workspace files
   useEffect(() => {
     if (companyId && sessionId) {
       listSessionOutputs(companyId, sessionId)
         .then(setFiles)
         .catch(() => setFiles([]))
     }
-  }, [companyId, sessionId, refreshKey]) // Add refreshKey to trigger refresh
+  }, [companyId, sessionId, refreshKey])
+
+  // Load final outputs
+  useEffect(() => {
+    if (companyId && sessionId) {
+      listSessionFinalOutputs(companyId, sessionId)
+        .then(setFinalFiles)
+        .catch(() => setFinalFiles([]))
+    }
+  }, [companyId, sessionId, refreshKey])
 
   const handleViewFile = async (filename: string) => {
     if (!companyId || !sessionId) return
@@ -55,55 +71,108 @@ export default function SessionOutputs({ refreshKey = 0, workflow }: Props) {
     setLoading(false)
   }
 
-  if (!files || files.length === 0) {
-    return (
-      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-800 mb-2">Agent 输出文档</h3>
-        <p className="text-gray-500 text-sm">暂无输出文件，工作流执行后会生成</p>
-      </div>
-    )
+  const handleViewFinalFile = async (filename: string) => {
+    if (!companyId || !sessionId) return
+    setSelectedFinal(filename)
+    setLoadingFinal(true)
+    try {
+      const data = await getSessionFinalOutput(companyId, sessionId, filename)
+      setFinalContent(data)
+    } catch (err) {
+      setFinalContent('Failed to load file content')
+    }
+    setLoadingFinal(false)
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100">
-      <h3 className="text-lg font-semibold text-gray-800 mb-2">Agent 输出文档</h3>
-      {/* Output directory path */}
-      <div className="mb-4 p-2 bg-gray-50 rounded text-sm text-gray-600">
-        <span className="font-medium">📄 输出目录: </span>
-        <code className="text-gray-800">backend/data/companys/{companyId}/sessions/{sessionId}/workspace/</code>
-      </div>
-      <div className="flex gap-4">
-        <div className="w-1/3 border-r border-gray-200 pr-3">
-          <p className="text-sm text-gray-500 mb-2">点击查看详情：</p>
-          {files.map(f => (
-            <div key={f} className="mb-1">
-              <button
-                onClick={() => handleViewFile(f)}
-                className={`block w-full text-left py-2 px-2 rounded text-sm ${
-                  selected === f
-                    ? 'bg-primary text-white'
-                    : 'hover:bg-gray-100 text-gray-700'
-                }`}
-              >
-                {formatStepLabel(workflow, f)}
-              </button>
-              <p className={`text-xs px-2 ${selected === f ? 'text-white/70' : 'text-gray-400'}`}>
-                <code>{f}</code>
-              </p>
+    <div className="space-y-4">
+      {/* Agent 输出文档 (workspace) */}
+      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100">
+        <h3 className="text-lg font-semibold text-gray-800 mb-2">Agent 输出文档</h3>
+        <div className="mb-4 p-2 bg-gray-50 rounded text-sm text-gray-600">
+          <span className="font-medium">📄 输出目录: </span>
+          <code className="text-gray-800">backend/data/companys/{companyId}/sessions/{sessionId}/workspace/</code>
+        </div>
+        {files.length === 0 ? (
+          <p className="text-gray-500 text-sm">暂无输出文件，工作流执行后会生成</p>
+        ) : (
+          <div className="flex gap-4">
+            <div className="w-1/3 border-r border-gray-200 pr-3">
+              <p className="text-sm text-gray-500 mb-2">点击查看详情：</p>
+              {files.map(f => (
+                <div key={f} className="mb-1">
+                  <button
+                    onClick={() => handleViewFile(f)}
+                    className={`block w-full text-left py-2 px-2 rounded text-sm ${
+                      selected === f
+                        ? 'bg-primary text-white'
+                        : 'hover:bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {formatStepLabel(workflow, f)}
+                  </button>
+                  <p className={`text-xs px-2 ${selected === f ? 'text-white/70' : 'text-gray-400'}`}>
+                    <code>{f}</code>
+                  </p>
+                </div>
+              ))}
             </div>
-          ))}
+            <div className="w-2/3 min-h-[200px]">
+              {loading ? (
+                <p className="text-gray-500">加载中...</p>
+              ) : selected ? (
+                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono bg-gray-50 p-3 rounded overflow-auto max-h-[400px]">
+                  {content}
+                </pre>
+              ) : (
+                <p className="text-gray-400 text-sm">选择左侧文件查看内容</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 最终产物 (outputs) */}
+      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100">
+        <h3 className="text-lg font-semibold text-gray-800 mb-2">最终交付产物</h3>
+        <div className="mb-4 p-2 bg-gray-50 rounded text-sm text-gray-600">
+          <span className="font-medium">📦 输出目录: </span>
+          <code className="text-gray-800">backend/data/companys/{companyId}/sessions/{sessionId}/outputs/</code>
         </div>
-        <div className="w-2/3 min-h-[200px]">
-          {loading ? (
-            <p className="text-gray-500">加载中...</p>
-          ) : selected ? (
-            <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono bg-gray-50 p-3 rounded overflow-auto max-h-[400px]">
-              {content}
-            </pre>
-          ) : (
-            <p className="text-gray-400 text-sm">选择左侧文件查看内容</p>
-          )}
-        </div>
+        {finalFiles.length === 0 ? (
+          <p className="text-gray-500 text-sm">暂无最终产物，Agent 执行后会生成</p>
+        ) : (
+          <div className="flex gap-4">
+            <div className="w-1/3 border-r border-gray-200 pr-3">
+              <p className="text-sm text-gray-500 mb-2">点击查看详情：</p>
+              {finalFiles.map(f => (
+                <div key={f} className="mb-1">
+                  <button
+                    onClick={() => handleViewFinalFile(f)}
+                    className={`block w-full text-left py-2 px-2 rounded text-sm ${
+                      selectedFinal === f
+                        ? 'bg-primary text-white'
+                        : 'hover:bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {f}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="w-2/3 min-h-[200px]">
+              {loadingFinal ? (
+                <p className="text-gray-500">加载中...</p>
+              ) : selectedFinal ? (
+                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono bg-gray-50 p-3 rounded overflow-auto max-h-[400px]">
+                  {finalContent}
+                </pre>
+              ) : (
+                <p className="text-gray-400 text-sm">选择左侧文件查看内容</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

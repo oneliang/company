@@ -115,3 +115,14 @@ export async function getSessionOutput(companyId: string, sessionId: string, fil
   const response = await axios.get(`${API_BASE}/companies/${companyId}/sessions/${sessionId}/outputs/${filename}`)
   return response.data
 }
+
+// 最终产物（outputs 目录）
+export async function listSessionFinalOutputs(companyId: string, sessionId: string) {
+  const response = await axios.get(`${API_BASE}/companies/${companyId}/sessions/${sessionId}/finaloutputs`)
+  return response.data
+}
+
+export async function getSessionFinalOutput(companyId: string, sessionId: string, filename: string) {
+  const response = await axios.get(`${API_BASE}/companies/${companyId}/sessions/${sessionId}/finaloutputs/${filename}`)
+  return response.data
+}
