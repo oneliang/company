@@ -113,17 +113,6 @@ start_frontend() {
         exit 1
     fi
 }
-    cd ..
-    sleep 3
-
-    if check_port $FRONTEND_PORT; then
-        echo -e "${GREEN}✓ 前端启动成功 (PID: $FRONTEND_PID)${NC}"
-        echo "   UI: http://localhost:$FRONTEND_PORT"
-    else
-        echo -e "${RED}✗ 前端启动失败，请检查日志: /tmp/company-frontend.log${NC}"
-        exit 1
-    fi
-}
 
 # 主流程
 echo ""
