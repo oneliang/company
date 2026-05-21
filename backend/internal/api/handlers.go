@@ -806,7 +806,7 @@ func (h *Handlers) ListSessionOutputs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var outputs []string
+	outputs := []string{}  // 初始化为空数组，避免 JSON null
 	for _, f := range files {
 		if !f.IsDir() && strings.HasSuffix(f.Name(), ".md") {
 			outputs = append(outputs, f.Name())
@@ -859,7 +859,7 @@ func (h *Handlers) ListSessionFinalOutputs(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var outputs []string
+	outputs := []string{}  // 初始化为空数组，避免 JSON null
 	for _, f := range files {
 		if !f.IsDir() {
 			outputs = append(outputs, f.Name())

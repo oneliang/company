@@ -44,7 +44,7 @@ export default function SessionOutputs({ refreshKey = 0, workflow }: Props) {
   useEffect(() => {
     if (companyId && sessionId) {
       listSessionOutputs(companyId, sessionId)
-        .then(setFiles)
+        .then(data => setFiles(data || []))
         .catch(() => setFiles([]))
     }
   }, [companyId, sessionId, refreshKey])
@@ -53,7 +53,7 @@ export default function SessionOutputs({ refreshKey = 0, workflow }: Props) {
   useEffect(() => {
     if (companyId && sessionId) {
       listSessionFinalOutputs(companyId, sessionId)
-        .then(setFinalFiles)
+        .then(data => setFinalFiles(data || []))
         .catch(() => setFinalFiles([]))
     }
   }, [companyId, sessionId, refreshKey])

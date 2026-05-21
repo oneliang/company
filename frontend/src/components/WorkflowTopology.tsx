@@ -124,7 +124,7 @@ export default function WorkflowTopology({ workflow }: Props) {
   // 先找出没有依赖的节点作为第一层
   const rootSteps = steps.filter(s => {
     const deps = s.dependencies || s.depends_on || []
-    return deps.length === 0
+    return Array.isArray(deps) && deps.length === 0
   })
 
   // BFS 分层
@@ -148,7 +148,7 @@ export default function WorkflowTopology({ workflow }: Props) {
     const nextNodes: string[] = []
     steps.forEach(s => {
       const deps = s.dependencies || s.depends_on || []
-      if (deps.some(d => currentNodes.includes(d)) && !processed.has(s.id)) {
+      if (Array.isArray(deps) && deps.some(d => currentNodes.includes(d)) && !processed.has(s.id)) {
         nextNodes.push(s.id)
       }
     })
@@ -186,10 +186,11 @@ export default function WorkflowTopology({ workflow }: Props) {
   const edges: Edge[] = steps
     .filter(step => {
       const deps = step.dependencies || step.depends_on || []
-      return deps.length > 0
+      return Array.isArray(deps) && deps.length > 0
     })
     .flatMap(step => {
       const deps = step.dependencies || step.depends_on || []
+      if (!Array.isArray(deps)) return []
       return deps.map(dep => ({
         id: `${dep}-${step.id}`,
         source: dep,
