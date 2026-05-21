@@ -2,6 +2,19 @@ import axios from 'axios'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8181/api'
 
+// Get WebSocket URL based on current environment
+export function getWebSocketUrl(path: string): string {
+  const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8181/api'
+  if (apiBase.startsWith('/api')) {
+    // Production: use current host (nginx proxy)
+    return `ws://${window.location.host}${path}`
+  } else {
+    // Development: extract host from API_BASE
+    const host = apiBase.replace('http://', '').replace('/api', '')
+    return `ws://${host}${path}`
+  }
+}
+
 // Company APIs
 export async function createCompany(name: string, industry: string, ownerId: string, description?: string) {
   const response = await axios.post(`${API_BASE}/companies`, {

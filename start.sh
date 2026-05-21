@@ -9,10 +9,6 @@ set -e
 BACKEND_PORT=8181
 FRONTEND_PORT=8100
 
-# 环境配置（生产模式时需要手动设置 SERVER_IP）
-PROD_MODE=false
-SERVER_IP="${SERVER_IP:-}"
-
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -62,13 +58,10 @@ start_backend() {
 
     # 设置 CORS 允许的来源
     if [ "$PROD_MODE" = true ]; then
-        if [ -z "$SERVER_IP" ]; then
-            echo -e "${RED}✗ 生产模式需要设置 SERVER_IP 环境变量${NC}"
-            echo "  例如: SERVER_IP=123.45.67.89 ./start.sh --prod"
-            exit 1
-        fi
-        export ALLOWED_ORIGIN="http://$SERVER_IP"
-        echo -e "${YELLOW}生产模式: ALLOWED_ORIGIN=http://$SERVER_IP${NC}"
+        # 生产模式下 nginx 统一代理，同源访问不需要严格 CORS
+        # 设置 * 允许所有来源，兼容性更好
+        export ALLOWED_ORIGIN="*"
+        echo -e "${YELLOW}生产模式: ALLOWED_ORIGIN=*${NC}"
     else
         export ALLOWED_ORIGIN="http://localhost:8100"
     fi
@@ -122,7 +115,7 @@ echo ""
 echo "用法: ./start.sh [--force|--stop|--prod]"
 echo "  --force  强制重启（杀掉现有进程）"
 echo "  --stop   停止所有服务"
-echo "  --prod   生产模式启动（需先设置 SERVER_IP 环境变量）"
+echo "  --prod   生产模式启动（允许所有来源 CORS）"
 echo ""
 
 # 处理参数

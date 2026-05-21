@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getCompany, listSessions, createSession } from '../api/companyApi'
+import { getCompany, listSessions, createSession, getWebSocketUrl } from '../api/companyApi'
 import SessionCard from './SessionCard'
 
 export default function CompanyDetailPage() {
@@ -21,7 +21,7 @@ export default function CompanyDetailPage() {
   useEffect(() => {
     if (companyId && hasPlanningSession) {
       // Connect to WebSocket to receive workflow_generated events
-      const ws = new WebSocket(`ws://localhost:8181/ws?company_id=${companyId}`)
+      const ws = new WebSocket(getWebSocketUrl(`/ws?company_id=${companyId}`))
 
       ws.onmessage = async (event) => {
         const data = JSON.parse(event.data)

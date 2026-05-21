@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getSession, getWorkflow, getReview, approveWorkflow, startWorkflow, resumeWorkflow, getRole, submitDecision, getStepHistory, restartStep } from '../api/companyApi'
+import { getSession, getWorkflow, getReview, approveWorkflow, startWorkflow, resumeWorkflow, getRole, submitDecision, getStepHistory, restartStep, getWebSocketUrl } from '../api/companyApi'
 import WorkflowTopology from './WorkflowTopology'
 import SessionOutputs from './SessionOutputs'
 import PreviousStepCard from './PreviousStepCard'
@@ -150,7 +150,7 @@ export default function SessionDetailPage() {
         wsRef.current.close()
       }
 
-      const ws = new WebSocket(`ws://localhost:8181/ws?session_id=${sessionId}`)
+      const ws = new WebSocket(getWebSocketUrl(`/ws?session_id=${sessionId}`))
 
       ws.onopen = () => {
         console.log('WebSocket connected for session:', sessionId)
