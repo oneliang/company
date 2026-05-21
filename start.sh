@@ -93,13 +93,26 @@ start_frontend() {
         npm install
     fi
 
-    # 生产模式设置环境变量并启动
+    # 生产模式：build + preview（无 HMR）
     if [ "$PROD_MODE" = true ]; then
-        nohup env PROD_MODE=true npm run dev > /tmp/company-frontend.log 2>&1 &
+        echo -e "${YELLOW}构建前端静态文件...${NC}"
+        npm run build
+        nohup npm run preview -- --port 8100 --host 0.0.0.0 > /tmp/company-frontend.log 2>&1 &
     else
         nohup npm run dev > /tmp/company-frontend.log 2>&1 &
     fi
     FRONTEND_PID=$!
+    cd ..
+    sleep 3
+
+    if check_port $FRONTEND_PORT; then
+        echo -e "${GREEN}✓ 前端启动成功 (PID: $FRONTEND_PID)${NC}"
+        echo "   UI: http://localhost:$FRONTEND_PORT"
+    else
+        echo -e "${RED}✗ 前端启动失败，请检查日志: /tmp/company-frontend.log${NC}"
+        exit 1
+    fi
+}
     cd ..
     sleep 3
 
