@@ -8,6 +8,7 @@ set -e
 # 端口配置
 BACKEND_PORT=8181
 FRONTEND_PORT=8100
+PROD_MODE=false
 
 # 颜色输出
 RED='\033[0;31m'
@@ -92,7 +93,12 @@ start_frontend() {
         npm install
     fi
 
-    nohup npm run dev > /tmp/company-frontend.log 2>&1 &
+    # 生产模式设置环境变量并启动
+    if [ "$PROD_MODE" = true ]; then
+        nohup env PROD_MODE=true npm run dev > /tmp/company-frontend.log 2>&1 &
+    else
+        nohup npm run dev > /tmp/company-frontend.log 2>&1 &
+    fi
     FRONTEND_PID=$!
     cd ..
     sleep 3
