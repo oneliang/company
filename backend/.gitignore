@@ -6,3 +6,4 @@ server
 # Log files
 logs/
 *.log
+!cmd/server
