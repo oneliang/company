@@ -1,13 +1,17 @@
 #!/bin/bash
 
 # Virtual Company Platform 启动/停止脚本
-# 用法: ./start.sh [--force|--stop]
+# 用法: ./start.sh [--force|--stop|--prod]
 
 set -e
 
 # 端口配置
 BACKEND_PORT=8181
 FRONTEND_PORT=8100
+
+# 环境配置（生产模式时需要手动设置 SERVER_IP）
+PROD_MODE=false
+SERVER_IP="${SERVER_IP:-}"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -55,6 +59,20 @@ stop_all() {
 # 启动后端
 start_backend() {
     echo -e "${GREEN}启动后端服务 (端口 $BACKEND_PORT)...${NC}"
+
+    # 设置 CORS 允许的来源
+    if [ "$PROD_MODE" = true ]; then
+        if [ -z "$SERVER_IP" ]; then
+            echo -e "${RED}✗ 生产模式需要设置 SERVER_IP 环境变量${NC}"
+            echo "  例如: SERVER_IP=123.45.67.89 ./start.sh --prod"
+            exit 1
+        fi
+        export ALLOWED_ORIGIN="http://$SERVER_IP"
+        echo -e "${YELLOW}生产模式: ALLOWED_ORIGIN=http://$SERVER_IP${NC}"
+    else
+        export ALLOWED_ORIGIN="http://localhost:8100"
+    fi
+
     cd backend
     nohup go run cmd/server/main.go > /tmp/company-backend.log 2>&1 &
     BACKEND_PID=$!
@@ -101,9 +119,10 @@ echo "========================================"
 echo "  Virtual Company Platform 启动脚本"
 echo "========================================"
 echo ""
-echo "用法: ./start.sh [--force|--stop]"
+echo "用法: ./start.sh [--force|--stop|--prod]"
 echo "  --force  强制重启（杀掉现有进程）"
 echo "  --stop   停止所有服务"
+echo "  --prod   生产模式启动（需先设置 SERVER_IP 环境变量）"
 echo ""
 
 # 处理参数
@@ -113,6 +132,10 @@ case "$1" in
         ;;
     --force)
         FORCE=true
+        ;;
+    --prod)
+        FORCE=true
+        PROD_MODE=true
         ;;
     *)
         FORCE=false
