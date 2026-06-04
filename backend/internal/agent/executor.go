@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/oneliang/aura/core/pkg/sdk"
 	"github.com/oneliang/aura/storage/pkg/jsonl"
 	"github.com/oneliang/aura/storage/pkg/message"
@@ -78,41 +79,43 @@ func (e *Executor) ExecuteStep(ctx context.Context, r *role.Role, input string) 
 	}
 	defer runtime.Shutdown()
 
-	// Process input
+	// Start event stream
+	if err := runtime.Start(ctx); err != nil {
+		return "", err
+	}
+	defer runtime.Stop(ctx)
+
+	// Get output channel
+	events := runtime.Events()
+
+	// Generate RequestID for tracing
+	requestID := uuid.New().String()
+
+	// Send input event
 	logging.Debug("Aura input",
 		"method", "ExecuteStep",
+		"request_id", requestID,
 		"role", r.ID,
 		"system_prompt", truncate(cfg.SystemPrompt, 500),
 		"input", truncate(input, 500),
 		"model", cfg.LLM.Model,
 	)
-	events, err := runtime.Process(ctx, input)
+	if err := runtime.SendEvent(ctx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
+		return "", err
+	}
+
+	// Process event stream
+	response, err := processEventStream(events)
 	if err != nil {
 		return "", err
 	}
 
-	// Collect response from event stream
-	var response strings.Builder
-	for ev := range events {
-		switch ev.Type() {
-		case sdk.EventTypeResponse:
-			response.WriteString(ev.Content())
-		case sdk.EventTypeResponseChunk:
-			response.WriteString(ev.Content())
-		case sdk.EventTypeResponseEnd:
-			// Response complete
-		case sdk.EventTypeDone:
-			break
-		case sdk.EventTypeError:
-			return "", errors.New(ev.Content())
-		}
-	}
-
 	logging.Debug("Aura response",
 		"method", "ExecuteStep",
-		"response", truncate(response.String(), 2000),
+		"request_id", requestID,
+		"response", truncate(response, 2000),
 	)
-	return response.String(), nil
+	return response, nil
 }
 
 // ExecuteInstance runs an agent with role instance context.
@@ -174,9 +177,22 @@ func (e *Executor) ExecuteInstanceWithHistory(ctx context.Context, r *role.Role,
 	}
 	defer runtime.Shutdown()
 
-	// Process input
+	// Start event stream
+	if err := runtime.Start(ctx); err != nil {
+		return "", err
+	}
+	defer runtime.Stop(ctx)
+
+	// Get output channel
+	events := runtime.Events()
+
+	// Generate RequestID for tracing
+	requestID := uuid.New().String()
+
+	// Send input event
 	logging.Debug("Aura input",
 		"method", "ExecuteInstanceWithHistory",
+		"request_id", requestID,
 		"session_id", sessionID,
 		"role", r.ID,
 		"instance_id", instance.ID,
@@ -184,34 +200,23 @@ func (e *Executor) ExecuteInstanceWithHistory(ctx context.Context, r *role.Role,
 		"input", truncate(input, 500),
 		"model", cfg.LLM.Model,
 	)
-	events, err := runtime.Process(ctx, input)
+	if err := runtime.SendEvent(ctx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
+		return "", err
+	}
+
+	// Process event stream
+	response, err := processEventStream(events)
 	if err != nil {
 		return "", err
 	}
 
-	// Collect response
-	var response strings.Builder
-	for ev := range events {
-		switch ev.Type() {
-		case sdk.EventTypeResponse:
-			response.WriteString(ev.Content())
-		case sdk.EventTypeResponseChunk:
-			response.WriteString(ev.Content())
-		case sdk.EventTypeResponseEnd:
-			// Response complete
-		case sdk.EventTypeDone:
-			break
-		case sdk.EventTypeError:
-			return "", errors.New(ev.Content())
-		}
-	}
-
 	logging.Debug("Aura response",
 		"method", "ExecuteInstanceWithHistory",
+		"request_id", requestID,
 		"session_id", sessionID,
-		"response", truncate(response.String(), 2000),
+		"response", truncate(response, 2000),
 	)
-	return response.String(), nil
+	return response, nil
 }
 
 // GetSessionHistory retrieves conversation history for a session.
@@ -249,37 +254,42 @@ func (e *Executor) ExecutePlain(ctx context.Context, systemPrompt string, input 
 	}
 	defer runtime.Shutdown()
 
+	// Start event stream
+	if err := runtime.Start(ctx); err != nil {
+		return "", err
+	}
+	defer runtime.Stop(ctx)
+
+	// Get output channel
+	events := runtime.Events()
+
+	// Generate RequestID for tracing
+	requestID := uuid.New().String()
+
+	// Send input event
 	logging.Debug("Aura input",
 		"method", "ExecutePlain",
+		"request_id", requestID,
 		"system_prompt", truncate(systemPrompt, 500),
 		"input", truncate(input, 500),
 		"model", cfg.LLM.Model,
 	)
-	events, err := runtime.Process(ctx, input)
+	if err := runtime.SendEvent(ctx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
+		return "", err
+	}
+
+	// Process event stream
+	response, err := processEventStream(events)
 	if err != nil {
 		return "", err
 	}
 
-	var response strings.Builder
-	for ev := range events {
-		switch ev.Type() {
-		case sdk.EventTypeResponse:
-			response.WriteString(ev.Content())
-		case sdk.EventTypeResponseChunk:
-			response.WriteString(ev.Content())
-		case sdk.EventTypeResponseEnd:
-		case sdk.EventTypeDone:
-			break
-		case sdk.EventTypeError:
-			return "", errors.New(ev.Content())
-		}
-	}
-
 	logging.Debug("Aura response",
 		"method", "ExecutePlain",
-		"response", truncate(response.String(), 2000),
+		"request_id", requestID,
+		"response", truncate(response, 2000),
 	)
-	return response.String(), nil
+	return response, nil
 }
 
 // truncate limits string length for logging
@@ -288,4 +298,24 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "...(truncated)"
+}
+
+// processEventStream collects response from event stream until Done event.
+func processEventStream(events <-chan sdk.Event) (string, error) {
+	var response strings.Builder
+	for ev := range events {
+		switch ev.Type() {
+		case sdk.EventTypeResponse:
+			response.WriteString(ev.Content())
+		case sdk.EventTypeResponseChunk:
+			response.WriteString(ev.Content())
+		case sdk.EventTypeResponseEnd:
+			// Response complete
+		case sdk.EventTypeDone:
+			return response.String(), nil
+		case sdk.EventTypeError:
+			return "", errors.New(ev.Content())
+		}
+	}
+	return response.String(), nil
 }
