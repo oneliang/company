@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/oneliang/aura/shared/pkg/memory"
 	"github.com/oneliang/company/internal/agent"
@@ -60,18 +61,19 @@ func NewHandlers(companyStore *company.Store, sessionStore *session.Store, confi
 }
 
 // NotifyProgress implements task.ProgressNotifier interface.
-func (h *Handlers) NotifyProgress(sessionID string, eventType string, stepID string, role string, action string, status string, progress string, errMsg string) {
+func (h *Handlers) NotifyProgress(sessionID string, eventType string, stepID string, role string, action string, status string, progress string, requestID string, errMsg string) {
 	// Debug: log the notification call
-	slog.Info("NotifyProgress called", "session_id", sessionID, "type", eventType, "step_id", stepID, "role", role, "action", action, "status", status)
+	slog.Info("NotifyProgress called", "session_id", sessionID, "type", eventType, "step_id", stepID, "role", role, "action", action, "status", status, "request_id", requestID)
 	if h.wsHandler != nil {
 		h.wsHandler.BroadcastProgress(sessionID, ProgressEvent{
-			Type:     eventType,
-			StepID:   stepID,
-			Role:     role,
-			Action:   action,
-			Status:   status,
-			Progress: progress,
-			Error:    errMsg,
+			Type:      eventType,
+			StepID:    stepID,
+			Role:      role,
+			Action:    action,
+			Status:    status,
+			Progress:  progress,
+			RequestID: requestID,
+			Error:     errMsg,
 		})
 	}
 }
@@ -323,9 +325,12 @@ func (h *Handlers) ExecuteStep(w http.ResponseWriter, r *http.Request) {
 	// Create engine with executor
 	engine := task.NewEngine(pool, nil, h.executor, h.instanceStore, h.sessionStore, companyID, h.dataDir)
 
+	// Generate RequestID for tracing
+	requestID := uuid.New().String()
+
 	// Execute step
 	ctx := context.Background()
-	if err := engine.ExecuteStep(ctx, sess, stepID); err != nil {
+	if err := engine.ExecuteStep(ctx, sess, stepID, requestID); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -452,6 +457,15 @@ func (h *Handlers) RestartStep(w http.ResponseWriter, r *http.Request) {
 	step.Status = workflow.StepPending
 	step.Output = ""
 
+	// Delete old instances for restarted step and cleared steps (force new creation)
+	if h.instanceStore != nil {
+		h.instanceStore.DeleteByStep(companyID, sessionID, stepID)
+		for _, clearedStepID := range clearedSteps {
+			h.instanceStore.DeleteByStep(companyID, sessionID, clearedStepID)
+		}
+		slog.Info("Deleted old instances for restart", "step", stepID, "cleared", clearedSteps)
+	}
+
 	// Save CEO opinion if provided
 	if req.CEOOpinion != "" {
 		d := ceo.NewDecision(sessionID, stepID, ceo.DecisionRestart, req.CEOOpinion)
@@ -493,7 +507,8 @@ func (h *Handlers) RestartStep(w http.ResponseWriter, r *http.Request) {
 	// Set session to running
 	sess.SetStatus(session.StatusRunning)
 	h.sessionStore.Save(sess)
-	h.NotifyProgress(sessionID, "workflow_status", "", "", "", "running", "", "")
+	requestID := uuid.New().String()
+	h.NotifyProgress(sessionID, "workflow_status", "", "", "", "running", "", requestID, "")
 
 	// Execute from the restarted step
 	go func() {
@@ -703,7 +718,8 @@ func (h *Handlers) StartWorkflow(w http.ResponseWriter, r *http.Request) {
 	// 立即设置状态为 running，保存后返回
 	sess.SetStatus(session.StatusRunning)
 	h.sessionStore.Save(sess)
-	h.NotifyProgress(sessionID, "workflow_status", "", "", "", "running", "", "")
+	requestID := uuid.New().String()
+	h.NotifyProgress(sessionID, "workflow_status", "", "", "", "running", "", requestID, "")
 
 	// 异步执行工作流
 	go func() {
@@ -769,7 +785,8 @@ func (h *Handlers) ResumeWorkflow(w http.ResponseWriter, r *http.Request) {
 	// 立即设置状态为 running，保存后返回
 	sess.SetStatus(session.StatusRunning)
 	h.sessionStore.Save(sess)
-	h.NotifyProgress(sessionID, "workflow_status", "", "", "", "running", "", "")
+	requestID := uuid.New().String()
+	h.NotifyProgress(sessionID, "workflow_status", "", "", "", "running", "", requestID, "")
 
 	// 异步执行工作流
 	go func() {

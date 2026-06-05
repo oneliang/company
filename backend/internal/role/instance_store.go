@@ -127,3 +127,30 @@ func (s *InstanceStore) ListByRole(companyID, roleID string) ([]*Instance, error
 	}
 	return instances, nil
 }
+
+// Delete removes an instance file.
+func (s *InstanceStore) Delete(companyID, sessionID, instanceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := filepath.Join(s.instancesDir(companyID, sessionID), instanceID+".jsonl")
+	return os.Remove(path)
+}
+
+// DeleteByStep removes instance by step ID.
+func (s *InstanceStore) DeleteByStep(companyID, sessionID, stepID string) error {
+	instance, err := s.GetByStep(companyID, sessionID, stepID)
+	if err != nil || instance == nil {
+		return err
+	}
+	return s.Delete(companyID, sessionID, instance.ID)
+}
+
+// DeleteBySession removes all instances for a session.
+func (s *InstanceStore) DeleteBySession(companyID, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	dir := s.instancesDir(companyID, sessionID)
+	return os.RemoveAll(dir)
+}

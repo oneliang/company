@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/oneliang/aura/core/pkg/sdk"
+	"github.com/oneliang/aura/shared/pkg/logger"
 	"github.com/oneliang/aura/storage/pkg/jsonl"
 	"github.com/oneliang/aura/storage/pkg/message"
 	"github.com/oneliang/company/internal/logging"
@@ -19,6 +20,7 @@ import (
 type Executor struct {
 	config       *Config
 	sessionStore *jsonl.MessageStore // 消息持久化存储
+	auraLogger   *logger.Logger      // Aura SDK logger (bridged to company slog)
 }
 
 // NewExecutor creates an agent executor from config file.
@@ -34,9 +36,20 @@ func NewExecutor(configPath string, dataDir string) (*Executor, error) {
 		return nil, err
 	}
 
+	// 创建 Aura logger，使用 company 的 slog 作为输出目标
+	auraLog := logger.New(logger.Config{
+		Level:  "debug",
+		Format: "text",
+		Output: "stdout",
+		Module: "aura",
+	})
+	// 替换为 company slog 适配器，让 Aura 日志输出到同一文件
+	auraLog.SetTarget(logging.NewAuraLogAdapter("aura"))
+
 	return &Executor{
 		config:       cfg,
 		sessionStore: store,
+		auraLogger:   auraLog,
 	}, nil
 }
 
@@ -53,20 +66,24 @@ func (e *Executor) ExecuteStep(ctx context.Context, r *role.Role, input string) 
 	cfg.LLM.Model = e.config.LLM.Model
 	cfg.LLM.APIKey = e.config.LLM.APIKey
 	cfg.LLM.BaseURL = e.config.LLM.BaseURL
+	if e.config.LLM.Timeout > 0 {
+		cfg.LLM.Timeout = e.config.LLM.Timeout
+	}
 
 	// Set agent temperature
 	cfg.Agent.Temperature = e.config.Agent.Temperature
 
 	// Set permissions to allow all tools (auto-approve without confirmation)
 	cfg.Permissions.DefaultLevel = "allow"
+		cfg.Permissions.Tools = nil // Clear per-tool settings to avoid "ask" level blocking
 
 	// GLM-5 requires max_completion_tokens > thinking_budget (default 32768)
 	// Set BudgetTokens large enough to satisfy this constraint
 	cfg.LLM.Thinking.Enabled = true
 	cfg.LLM.Thinking.BudgetTokens = 40960 // Used as max_completion_tokens, must > 32768
 
-	// Create runtime
-	runtime, err := sdk.NewRuntime(cfg)
+	// Create runtime with logger
+	runtime, err := sdk.NewRuntime(cfg, sdk.WithLogger(e.auraLogger), sdk.WithAutoApprove())
 	if err != nil {
 		return "", err
 	}
@@ -79,11 +96,15 @@ func (e *Executor) ExecuteStep(ctx context.Context, r *role.Role, input string) 
 	}
 	defer runtime.Shutdown()
 
+	// Create execution context with longer timeout for LLM calls (5 minutes)
+	execCtx, execCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer execCancel()
+
 	// Start event stream
-	if err := runtime.Start(ctx); err != nil {
+	if err := runtime.Start(execCtx); err != nil {
 		return "", err
 	}
-	defer runtime.Stop(ctx)
+	defer runtime.Stop(execCtx)
 
 	// Get output channel
 	events := runtime.Events()
@@ -100,7 +121,7 @@ func (e *Executor) ExecuteStep(ctx context.Context, r *role.Role, input string) 
 		"input", truncate(input, 500),
 		"model", cfg.LLM.Model,
 	)
-	if err := runtime.SendEvent(ctx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
+	if err := runtime.SendEvent(execCtx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
 		return "", err
 	}
 
@@ -141,9 +162,13 @@ func (e *Executor) ExecuteInstanceWithHistory(ctx context.Context, r *role.Role,
 	cfg.LLM.APIKey = e.config.LLM.APIKey
 	cfg.LLM.BaseURL = e.config.LLM.BaseURL
 	cfg.Agent.Temperature = e.config.Agent.Temperature
+	if e.config.LLM.Timeout > 0 {
+		cfg.LLM.Timeout = e.config.LLM.Timeout
+	}
 
 	// Set permissions to allow all tools (auto-approve without confirmation)
 	cfg.Permissions.DefaultLevel = "allow"
+		cfg.Permissions.Tools = nil // Clear per-tool settings to avoid "ask" level blocking
 
 	// GLM-5 requires max_completion_tokens > thinking_budget (default 32768)
 	cfg.LLM.Thinking.Enabled = true
@@ -155,8 +180,9 @@ func (e *Executor) ExecuteInstanceWithHistory(ctx context.Context, r *role.Role,
 		input = input + "\n\nCEO补充意见：" + additionalInput
 	}
 
-	// Create runtime with optional session history
+	// Create runtime with optional session history, logger, and auto-approve
 	var runtimeOpts []sdk.RuntimeOption
+	runtimeOpts = append(runtimeOpts, sdk.WithLogger(e.auraLogger), sdk.WithAutoApprove())
 	if sessionID != "" && e.sessionStore != nil {
 		runtimeOpts = append(runtimeOpts,
 			sdk.WithSessionStore(e.sessionStore),
@@ -177,17 +203,24 @@ func (e *Executor) ExecuteInstanceWithHistory(ctx context.Context, r *role.Role,
 	}
 	defer runtime.Shutdown()
 
+	// Create execution context with longer timeout for LLM calls (5 minutes)
+	execCtx, execCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer execCancel()
+
 	// Start event stream
-	if err := runtime.Start(ctx); err != nil {
+	if err := runtime.Start(execCtx); err != nil {
 		return "", err
 	}
-	defer runtime.Stop(ctx)
+	defer runtime.Stop(execCtx)
 
 	// Get output channel
 	events := runtime.Events()
 
-	// Generate RequestID for tracing
-	requestID := uuid.New().String()
+	// Use instance.RequestID for tracing (passed from engine)
+	requestID := instance.RequestID
+	if requestID == "" {
+		requestID = uuid.New().String() // fallback if not set
+	}
 
 	// Send input event
 	logging.Debug("Aura input",
@@ -200,7 +233,7 @@ func (e *Executor) ExecuteInstanceWithHistory(ctx context.Context, r *role.Role,
 		"input", truncate(input, 500),
 		"model", cfg.LLM.Model,
 	)
-	if err := runtime.SendEvent(ctx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
+	if err := runtime.SendEvent(execCtx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
 		return "", err
 	}
 
@@ -237,12 +270,15 @@ func (e *Executor) ExecutePlain(ctx context.Context, systemPrompt string, input 
 	cfg.LLM.APIKey = e.config.LLM.APIKey
 	cfg.LLM.BaseURL = e.config.LLM.BaseURL
 	cfg.Agent.Temperature = e.config.Agent.Temperature
+	if e.config.LLM.Timeout > 0 {
+		cfg.LLM.Timeout = e.config.LLM.Timeout
+	}
 
 	// GLM-5 requires max_completion_tokens > thinking_budget (default 32768)
 	cfg.LLM.Thinking.Enabled = true
 	cfg.LLM.Thinking.BudgetTokens = 40960 // Used as max_completion_tokens, must > 32768
 
-	runtime, err := sdk.NewRuntime(cfg)
+	runtime, err := sdk.NewRuntime(cfg, sdk.WithLogger(e.auraLogger), sdk.WithAutoApprove())
 	if err != nil {
 		return "", err
 	}
@@ -254,11 +290,15 @@ func (e *Executor) ExecutePlain(ctx context.Context, systemPrompt string, input 
 	}
 	defer runtime.Shutdown()
 
+	// Create execution context with longer timeout for LLM calls (5 minutes)
+	execCtx, execCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer execCancel()
+
 	// Start event stream
-	if err := runtime.Start(ctx); err != nil {
+	if err := runtime.Start(execCtx); err != nil {
 		return "", err
 	}
-	defer runtime.Stop(ctx)
+	defer runtime.Stop(execCtx)
 
 	// Get output channel
 	events := runtime.Events()
@@ -274,7 +314,7 @@ func (e *Executor) ExecutePlain(ctx context.Context, systemPrompt string, input 
 		"input", truncate(input, 500),
 		"model", cfg.LLM.Model,
 	)
-	if err := runtime.SendEvent(ctx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
+	if err := runtime.SendEvent(execCtx, sdk.NewEvent(sdk.EventTypeUserInput, input, requestID)); err != nil {
 		return "", err
 	}
 

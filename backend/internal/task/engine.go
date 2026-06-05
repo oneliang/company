@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/oneliang/company/internal/agent"
 	"github.com/oneliang/company/internal/logging"
 	"github.com/oneliang/company/internal/role"
@@ -19,7 +20,7 @@ import (
 
 // ProgressNotifier notifies progress updates.
 type ProgressNotifier interface {
-	NotifyProgress(sessionID string, eventType string, stepID string, role string, action string, status string, progress string, errMsg string)
+	NotifyProgress(sessionID string, eventType string, stepID string, role string, action string, status string, progress string, requestID string, errMsg string)
 }
 
 // Engine handles task decomposition and workflow execution.
@@ -221,8 +222,8 @@ func (e *Engine) ApproveWorkflow(sess *session.Session) error {
 }
 
 // ExecuteStep executes a workflow step using the role's agent.
-func (e *Engine) ExecuteStep(ctx context.Context, sess *session.Session, stepID string) error {
-	logging.Info("ExecuteStep START", "session", sess.ID, "step", stepID)
+func (e *Engine) ExecuteStep(ctx context.Context, sess *session.Session, stepID string, requestID string) error {
+	logging.Info("ExecuteStep START", "session", sess.ID, "step", stepID, "request_id", requestID)
 
 	// Check if workflow is approved
 	if sess.Status != session.StatusApproved && sess.Status != session.StatusRunning {
@@ -241,7 +242,7 @@ func (e *Engine) ExecuteStep(ctx context.Context, sess *session.Session, stepID 
 		logging.Info("Workflow status changed", "from", "approved", "to", "running")
 		// Notify progress
 		if e.notifier != nil {
-			e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "running", "", "")
+			e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "running", "", requestID, "")
 		}
 	}
 
@@ -277,8 +278,33 @@ func (e *Engine) ExecuteStep(ctx context.Context, sess *session.Session, stepID 
 		return err
 	}
 
-	// Create role instance
-	instance := role.NewInstance(r.ID, sess.ID, stepID)
+	// Instance reuse logic: check existing instance for this step
+	var instance *role.Instance
+	if e.instanceStore != nil {
+		existingInstance, _ := e.instanceStore.GetByStep(e.companyID, sess.ID, stepID)
+		if existingInstance != nil {
+			// Reuse if failed or timed out (running for >30 min)
+			if existingInstance.Status == role.InstanceFailed {
+				instance = existingInstance
+				instance.ResetForRetry(requestID)
+				logging.Info("Instance REUSED for retry", "instance_id", instance.ID, "step", stepID)
+			} else if existingInstance.Status == role.InstanceRunning {
+				// Check timeout
+				if !existingInstance.StartedAt.IsZero() && time.Since(existingInstance.StartedAt) > 30*time.Minute {
+					instance = existingInstance
+					instance.ResetForRetry(requestID)
+					logging.Info("Instance REUSED for timeout recovery", "instance_id", instance.ID, "step", stepID)
+				}
+			}
+		}
+	}
+
+	// Create new instance if not reused
+	if instance == nil {
+		instance = role.NewInstance(r.ID, sess.ID, stepID)
+		instance.RequestID = requestID
+		logging.Info("Instance CREATED", "instance_id", instance.ID, "step", stepID)
+	}
 
 	// Build context from dependency outputs
 	instance.SetContext(e.buildContext(sess.Workflow, step))
@@ -305,27 +331,32 @@ func (e *Engine) ExecuteStep(ctx context.Context, sess *session.Session, stepID 
 	}
 
 	if e.notifier != nil {
-		e.notifier.NotifyProgress(sess.ID, "step_start", stepID, step.Role, step.Action, "running", "", "")
+		e.notifier.NotifyProgress(sess.ID, "step_start", stepID, step.Role, step.Action, "running", "", requestID, "")
 	}
 
 	// Execute via agent executor
 	output, err := e.executor.ExecuteInstance(ctx, r, instance)
 	if err != nil {
 		step.Status = workflow.StepFailed
-		sess.CurrentStep = "" // 步骤失败，清空当前执行步骤
-		instance.SetFailed()
+		step.Error = err.Error() // Record error in step for API response
+		sess.CurrentStep = ""    // 步骤失败，清空当前执行步骤
+		instance.SetError(err.Error()) // Record error details
 		if e.instanceStore != nil {
 			e.instanceStore.Save(e.companyID, instance)
 		}
-		logging.Error("ExecuteStep FAILED", "step", stepID, "error", err)
+		// Save session with step error
+		if e.sessionStore != nil {
+			e.sessionStore.Save(sess)
+		}
+		logging.Error("ExecuteStep FAILED", "step", stepID, "request_id", requestID, "error", err)
 		if e.notifier != nil {
-			e.notifier.NotifyProgress(sess.ID, "step_failed", stepID, step.Role, step.Action, "failed", "", err.Error())
+			e.notifier.NotifyProgress(sess.ID, "step_failed", stepID, step.Role, step.Action, "failed", "", requestID, err.Error())
 		}
 		return err
 	}
 
 	// Set output and mark as completed
-	instance.SetOutput(output)
+	instance.SetCompleted(output)
 	step.Status = workflow.StepCompleted
 	sess.CurrentStep = "" // 步骤完成，清空当前执行步骤
 	step.Output = output
@@ -348,13 +379,13 @@ func (e *Engine) ExecuteStep(ctx context.Context, sess *session.Session, stepID 
 		}
 	}
 	progress := fmt.Sprintf("%d/%d", completedCount, len(sess.Workflow.Steps))
-	logging.Info("ExecuteStep SUCCESS", "step", stepID, "progress", progress)
+	logging.Info("ExecuteStep SUCCESS", "step", stepID, "request_id", requestID, "progress", progress)
 
 	// 推送完整 workflow 状态（让前端同步所有步骤）
 	if e.notifier != nil {
-		e.notifier.NotifyProgress(sess.ID, "step_complete", stepID, step.Role, step.Action, "completed", progress, "")
+		e.notifier.NotifyProgress(sess.ID, "step_complete", stepID, step.Role, step.Action, "completed", progress, requestID, "")
 		// 推送完整 workflow 更新
-		e.notifier.NotifyProgress(sess.ID, "workflow_update", "", "", "", "", progress, "")
+		e.notifier.NotifyProgress(sess.ID, "workflow_update", "", "", "", "", progress, requestID, "")
 	}
 
 	// Write agent output to markdown file
@@ -402,6 +433,7 @@ func (e *Engine) RunWorkflow(ctx context.Context, sess *session.Session) error {
 			logging.Info("Resetting failed step for retry", "step", step.ID)
 			step.Status = workflow.StepPending
 			step.Output = ""
+			step.Error = "" // Clear error for retry
 		}
 	}
 
@@ -412,7 +444,7 @@ func (e *Engine) RunWorkflow(ctx context.Context, sess *session.Session) error {
 		logging.Debug("Session saved with status=running")
 	}
 	if e.notifier != nil {
-		e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "running", "", "")
+		e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "running", "", "", "")
 	}
 
 	for {
@@ -434,7 +466,7 @@ func (e *Engine) RunWorkflow(ctx context.Context, sess *session.Session) error {
 				sess.SetStatus(session.StatusCompleted)
 				logging.Info("Workflow COMPLETED", "session", sess.ID)
 				if e.notifier != nil {
-					e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "completed", "", "")
+					e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "completed", "", "", "")
 				}
 				return nil
 			}
@@ -443,7 +475,7 @@ func (e *Engine) RunWorkflow(ctx context.Context, sess *session.Session) error {
 			sess.SetStatus(session.StatusPaused)
 			logging.Info("Workflow PAUSED", "session", sess.ID, "reason", "waiting for blocked steps")
 			if e.notifier != nil {
-				e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "paused", "", "")
+				e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "paused", "", "", "")
 			}
 			return nil
 		}
@@ -463,7 +495,7 @@ func (e *Engine) RunWorkflow(ctx context.Context, sess *session.Session) error {
 				e.sessionStore.Save(sess)
 			}
 			if e.notifier != nil {
-				e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "paused", "", "")
+				e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "paused", "", "", "")
 			}
 			return nil
 		}
@@ -472,15 +504,18 @@ func (e *Engine) RunWorkflow(ctx context.Context, sess *session.Session) error {
 		for _, step := range ready {
 			logging.Info("Executing step", "step", step.ID, "role", step.Role, "action", step.Action)
 
-			if err := e.ExecuteStep(ctx, sess, step.ID); err != nil {
+			// Generate RequestID for each step execution
+			requestID := uuid.New().String()
+
+			if err := e.ExecuteStep(ctx, sess, step.ID, requestID); err != nil {
 				sess.SetStatus(session.StatusFailed)
-				logging.Error("Workflow FAILED", "step", step.ID, "error", err)
+				logging.Error("Workflow FAILED", "step", step.ID, "request_id", requestID, "error", err)
 				// Save failed state
 				if e.sessionStore != nil {
 					e.sessionStore.Save(sess)
 				}
 				if e.notifier != nil {
-					e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "failed", "", err.Error())
+					e.notifier.NotifyProgress(sess.ID, "workflow_status", "", "", "", "failed", "", requestID, err.Error())
 				}
 				return err
 			}

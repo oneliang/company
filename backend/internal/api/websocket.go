@@ -21,6 +21,7 @@ type ProgressEvent struct {
 	Action    string `json:"action"`     // action name
 	Status    string `json:"status"`     // step/workflow status
 	Progress  string `json:"progress"`   // e.g., "3/7"
+	RequestID string `json:"request_id"` // trace ID for debugging
 	Error     string `json:"error"`      // error message if failed
 	SessionID string `json:"session_id"` // session identifier
 }
@@ -106,12 +107,13 @@ func (h *WebSocketHandler) BroadcastProgress(sessionID string, event ProgressEve
 		"action":     event.Action,
 		"status":     event.Status,
 		"progress":   event.Progress,
+		"request_id": event.RequestID,
 		"error":      event.Error,
 		"session_id": event.SessionID,
 	})
 
 	// Debug: log the message being sent
-	slog.Info("BroadcastProgress sending", "session_id", sessionID, "type", event.Type, "status", event.Status, "data", string(data))
+	slog.Info("BroadcastProgress sending", "session_id", sessionID, "type", event.Type, "status", event.Status, "request_id", event.RequestID, "data", string(data))
 
 	h.mu.Lock()
 	defer h.mu.Unlock()

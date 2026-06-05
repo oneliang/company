@@ -47,26 +47,26 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 )
 
-replace github.com/oneliang/aura/shared v0.0.0 => github.com/oneliang/aura/shared v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/shared v0.0.0 => github.com/oneliang/aura/shared v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/agent v0.0.0 => github.com/oneliang/aura/agent v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/agent v0.0.0 => github.com/oneliang/aura/agent v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/session v0.0.0 => github.com/oneliang/aura/session v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/session v0.0.0 => github.com/oneliang/aura/session v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/storage v0.0.0 => github.com/oneliang/aura/storage v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/storage v0.0.0 => github.com/oneliang/aura/storage v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/commands v0.0.0 => github.com/oneliang/aura/commands v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/commands v0.0.0 => github.com/oneliang/aura/commands v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/mcp v0.0.0 => github.com/oneliang/aura/mcp v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/mcp v0.0.0 => github.com/oneliang/aura/mcp v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/skill v0.0.0 => github.com/oneliang/aura/skill v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/skill v0.0.0 => github.com/oneliang/aura/skill v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/tools v0.0.0 => github.com/oneliang/aura/tools v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/tools v0.0.0 => github.com/oneliang/aura/tools v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/knowledge v0.0.0 => github.com/oneliang/aura/knowledge v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/knowledge v0.0.0 => github.com/oneliang/aura/knowledge v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/personality v0.0.0 => github.com/oneliang/aura/personality v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/personality v0.0.0 => github.com/oneliang/aura/personality v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/habit v0.0.0 => github.com/oneliang/aura/habit v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/habit v0.0.0 => github.com/oneliang/aura/habit v0.0.0-20260605054214-5b3f1d86fc22
 
-replace github.com/oneliang/aura/core v0.0.0 => github.com/oneliang/aura/core v0.0.0-20260604124046-bf7e8a1749ec
+replace github.com/oneliang/aura/core v0.0.0 => github.com/oneliang/aura/core v0.0.0-20260605054214-5b3f1d86fc22

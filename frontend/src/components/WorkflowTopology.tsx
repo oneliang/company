@@ -29,6 +29,7 @@ interface Workflow {
 
 interface Props {
   workflow: Workflow
+  errorMap?: Record<string, string> // step_id → error message
 }
 
 // 状态颜色：红色=出错，绿色=完成，黄色=进行中，灰色=待处理
@@ -65,9 +66,10 @@ const getStatusLabel = (status: string): string => {
 }
 
 // Custom Node Component
-function WorkflowNode({ data }: { data: { label: string; status: string; role?: string } }) {
+function WorkflowNode({ data }: { data: { label: string; status: string; role?: string; error?: string } }) {
   const bgColor = getStatusColor(data.status)
   const statusLabel = getStatusLabel(data.status)
+  const hasError = data.status === 'failed' || data.status === 'error'
 
   return (
     <>
@@ -101,6 +103,21 @@ function WorkflowNode({ data }: { data: { label: string; status: string; role?: 
         }}>
           {statusLabel}
         </div>
+        {hasError && data.error && (
+          <div style={{
+            fontSize: '9px',
+            padding: '4px 6px',
+            background: 'rgba(0,0,0,0.4)',
+            borderRadius: '4px',
+            marginTop: '4px',
+            maxWidth: '200px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            ❌ {data.error.substring(0, 50)}{data.error.length > 50 ? '...' : ''}
+          </div>
+        )}
       </div>
       <Handle type="source" position={Position.Right} style={{ background: '#555' }} />
     </>
@@ -111,7 +128,7 @@ const nodeTypes = {
   workflow: WorkflowNode,
 }
 
-export default function WorkflowTopology({ workflow }: Props) {
+export default function WorkflowTopology({ workflow, errorMap }: Props) {
   if (!workflow || !workflow.steps || workflow.steps.length === 0) {
     return <div className="text-center py-12 text-gray-500">暂无工作流数据</div>
   }
@@ -175,7 +192,8 @@ export default function WorkflowTopology({ workflow }: Props) {
     data: {
       label: step.name || `${step.role}: ${step.action}`,
       status: step.status || 'pending',
-      role: step.agent_role || step.role
+      role: step.agent_role || step.role,
+      error: errorMap?.[step.id] || ''
     },
     width: 140,
     height: 60,

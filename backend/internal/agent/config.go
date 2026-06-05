@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -9,10 +10,11 @@ import (
 // Config holds configuration for agent runtime.
 type Config struct {
 	LLM struct {
-		Provider string `yaml:"provider"`
-		Model    string `yaml:"model"`
-		APIKey   string `yaml:"api_key"`
-		BaseURL  string `yaml:"base_url"`
+		Provider string        `yaml:"provider"`
+		Model    string        `yaml:"model"`
+		APIKey   string        `yaml:"api_key"`
+		BaseURL  string        `yaml:"base_url"`
+		Timeout  time.Duration `yaml:"timeout"` // LLM HTTP client timeout
 	} `yaml:"llm"`
 	Agent struct {
 		MaxSteps    int     `yaml:"max_steps"`

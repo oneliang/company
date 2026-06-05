@@ -21,4 +21,5 @@ type Step struct {
 	DependsOn       []string   `json:"depends_on,omitempty"`
 	IsDecisionPoint bool       `json:"is_decision_point"`
 	Output          string     `json:"output,omitempty"`
+	Error           string     `json:"error,omitempty"` // Error message if step failed
 }

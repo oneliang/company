@@ -13,6 +13,7 @@ interface ProgressEvent {
   action: string
   status: string
   progress: string
+  request_id: string
   error: string
   session_id: string
   step_ids?: string[] // For steps_cleared event
@@ -41,6 +42,7 @@ export default function SessionDetailPage() {
   const [stepHistory, setStepHistory] = useState<Record<string, HistoryMessage[]>>({}) // Conversation history per step
   const [expandedHistory, setExpandedHistory] = useState<Record<string, boolean>>({}) // Expanded state per step
   const [outputRefreshKey, setOutputRefreshKey] = useState<number>(0) // Key to trigger SessionOutputs refresh
+  const [failedStepError, setFailedStepError] = useState<string>('') // Error message for failed step
   const wsRef = useRef<WebSocket | null>(null)
   const fetchedStepsRef = useRef<Set<string>>(new Set())
 
@@ -97,7 +99,10 @@ export default function SessionDetailPage() {
         console.error('Failed to refresh session:', err)
       }
     } else if (data.type === 'step_failed') {
-      // 刷新后端真实状态（不做本地猜测）
+      // 保存错误信息并刷新状态
+      if (data.error) {
+        setFailedStepError(`${data.step_id} (${data.role}): ${data.error}`)
+      }
       try {
         const updated = await getSession(companyId!, sessionId!)
         console.log('getSession (step_failed) returned, steps:', updated?.workflow?.steps?.map((s: any) => ({ id: s.id, status: s.status })))
@@ -115,6 +120,8 @@ export default function SessionDetailPage() {
         console.log('getSession (workflow_status) returned, status:', updated?.status, 'steps:', updated?.workflow?.steps?.map((s: any) => ({ id: s.id, status: s.status })))
         setSession(updated)
         setWorkflow(updated.workflow)
+        // 触发 outputs 刷新（workflow 完成/暂停/失败时显示交付产物）
+        setOutputRefreshKey(prev => prev + 1)
       } catch (err) {
         console.error('Failed to refresh session (workflow_status):', err)
       }
@@ -173,10 +180,18 @@ export default function SessionDetailPage() {
   }
 
   // Find pending decision points (memoized to prevent unnecessary re-renders)
+  // Only show decision points whose dependencies are all completed
   const pendingDecisionPoints = useMemo(() => {
-    return workflow?.steps?.filter((s: any) =>
-      s.is_decision_point && s.status === 'pending'
-    ) || []
+    if (!workflow?.steps) return []
+    const steps = workflow.steps
+    const completedSteps = steps.filter((s: any) => s.status === 'completed').map((s: any) => s.id)
+
+    return steps.filter((s: any) => {
+      if (!s.is_decision_point || s.status !== 'pending') return false
+      // Check if all dependencies are completed
+      const dependsOn = s.depends_on || []
+      return dependsOn.every((dep: string) => completedSteps.includes(dep))
+    })
   }, [workflow?.steps])
 
   // 当前执行步骤显示（从 session.current_step 和 workflow.steps 计算）
@@ -186,6 +201,19 @@ export default function SessionDetailPage() {
     if (!step) return ''
     return `${step.id} (${step.role}: ${step.action})`
   }, [session?.current_step, workflow?.steps])
+
+  // Build error map for failed steps
+  const errorMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    if (failedStepError && workflow?.steps) {
+      // Find failed step and map error
+      const failedStep = workflow.steps.find((s: any) => s.status === 'failed')
+      if (failedStep) {
+        map[failedStep.id] = failedStepError
+      }
+    }
+    return map
+  }, [failedStepError, workflow])
 
   // Load conversation history for decision points
   useEffect(() => {
@@ -545,6 +573,12 @@ export default function SessionDetailPage() {
           <p className="text-red-800 font-medium mb-2">
             {session.status === 'failed' ? '执行失败' : '执行暂停'}
           </p>
+          {failedStepError && session.status === 'failed' && (
+            <div className="bg-red-100 border border-red-300 rounded p-2 mb-3">
+              <p className="text-red-800 text-sm font-medium">失败原因:</p>
+              <p className="text-red-700 text-sm mt-1">{failedStepError}</p>
+            </div>
+          )}
           <p className="text-red-700 text-sm mb-3">
             {session.status === 'failed' ? '修复问题后可恢复执行' : '等待决策点审批或依赖满足后可恢复'}
           </p>
@@ -746,7 +780,7 @@ export default function SessionDetailPage() {
       <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">工作流拓扑图</h3>
         {workflow ? (
-          <WorkflowTopology workflow={workflow} />
+          <WorkflowTopology workflow={workflow} errorMap={errorMap} />
         ) : (
           <div className="text-center py-12 text-gray-500">暂无工作流数据</div>
         )}
