@@ -26,6 +26,27 @@ check_port() {
     fi
 }
 
+# 等待端口就绪（循环检测，最多等待指定秒数）
+wait_for_port() {
+    local port=$1
+    local timeout=$2
+    local service_name=$3
+    local elapsed=0
+
+    while [ $elapsed -lt $timeout ]; do
+        if check_port $port; then
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+        # 每 5 秒显示一次进度
+        if [ $((elapsed % 5)) -eq 0 ]; then
+            echo -e "${YELLOW}  等待 $service_name 启动... (${elapsed}s/${timeout}s)${NC}"
+        fi
+    done
+    return 1
+}
+
 # 杀掉占用端口的进程
 kill_port() {
     local port=$1
@@ -71,13 +92,13 @@ start_backend() {
     nohup go run cmd/server/main.go > /tmp/company-backend.log 2>&1 &
     BACKEND_PID=$!
     cd ..
-    sleep 2
 
-    if check_port $BACKEND_PORT; then
+    echo -e "${YELLOW}等待后端启动（首次运行可能需要下载依赖）...${NC}"
+    if wait_for_port $BACKEND_PORT 120 "后端"; then
         echo -e "${GREEN}✓ 后端启动成功 (PID: $BACKEND_PID)${NC}"
         echo "   API: http://localhost:$BACKEND_PORT"
     else
-        echo -e "${RED}✗ 后端启动失败，请检查日志: /tmp/company-backend.log${NC}"
+        echo -e "${RED}✗ 后端启动超时（120秒），请检查日志: /tmp/company-backend.log${NC}"
         exit 1
     fi
 }
@@ -103,13 +124,13 @@ start_frontend() {
     fi
     FRONTEND_PID=$!
     cd ..
-    sleep 3
 
-    if check_port $FRONTEND_PORT; then
+    echo -e "${YELLOW}等待前端启动...${NC}"
+    if wait_for_port $FRONTEND_PORT 60 "前端"; then
         echo -e "${GREEN}✓ 前端启动成功 (PID: $FRONTEND_PID)${NC}"
         echo "   UI: http://localhost:$FRONTEND_PORT"
     else
-        echo -e "${RED}✗ 前端启动失败，请检查日志: /tmp/company-frontend.log${NC}"
+        echo -e "${RED}✗ 前端启动超时（60秒），请检查日志: /tmp/company-frontend.log${NC}"
         exit 1
     fi
 }
